@@ -1,0 +1,21 @@
+services:
+  couchbase:
+    image: couchbase:latest
+    ports:
+      - "8091-8094:8091-8094"       # Admin UI
+      - "8095-8096:8095-8096"       # Views, Query, Search
+      - "8097:8097"                 # Analytics
+      - "11207:11207"               # XDCR SSL
+      - "11210:11210"               # Memcached SSL
+      - "18091-18094:18091-18094"   # REST/HTTP interface
+    volumes:
+      - couchbase_data:/opt/couchbase/var
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=Administrator
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=password123
+      - COUCHBASE_BUCKET=default
+      - COUCHBASE_BUCKET_PASSWORD=bucket123
+    restart: unless-stopped
+
+volumes:
+  couchbase_data:

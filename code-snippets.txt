@@ -1,0 +1,923 @@
+#####################################################################
+#                                                                   #
+# Snippet-00: docker compose script for couchbase server            #
+#                                                                   #
+#####################################################################
+
+services:
+  couchbase:
+    image: couchbase:latest
+    ports:
+      - "8091-8094:8091-8094"       # Admin UI
+      - "8095-8096:8095-8096"       # Views, Query, Search
+      - "8097:8097"                 # Analytics
+      - "11207:11207"               # XDCR SSL
+      - "11210:11210"               # Memcached SSL
+      - "18091-18094:18091-18094"   # REST/HTTP interface
+    volumes:
+      - couchbase_data:/opt/couchbase/var
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=Administrator
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=password123
+      - COUCHBASE_BUCKET=default
+      - COUCHBASE_BUCKET_PASSWORD=bucket123
+    restart: unless-stopped
+
+volumes:
+  couchbase_data:
+
+
+#####################################################################
+#                                                                   #
+# Snippet-01: maven dependency for spring data couchbase            #
+#                                                                   #
+#####################################################################
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-couchbase</artifactId>
+</dependency>
+
+#####################################################################
+#                                                                   #
+# Snippet-02: properties for connecting to couchbase server         #
+#                                                                   #
+#####################################################################
+
+spring.couchbase.connection-string=couchbase://${COUCHBASE_HOST:localhost}
+spring.couchbase.username=${COUCHBASE_USERNAME:Administrator}
+spring.couchbase.password=${COUCHBASE_PASSWORD:password123}
+spring.data.couchbase.bucket-name=${COUCHBASE_BUCKET:northwind}
+spring.data.couchbase.scope-name=${COUCHBASE_SCOPE:_default}
+spring.data.couchbase.auto-index=true
+
+
+#####################################################################
+#                                                                   #
+# Snippet-03: maven dependencies for actuator and prometheus        #
+#                                                                   #
+#####################################################################
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+    <scope>runtime</scope>
+</dependency>
+
+#####################################################################
+#                                                                   #
+# Snippet-04: docker-compose scrpt for prometheus server            #
+#                                                                   #
+#####################################################################
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+
+#####################################################################
+#                                                                   #
+# Snippet-05: docker-compose scrpt for grafana server               #
+#                                                                   #
+#####################################################################
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  grafana_data:
+
+#####################################################################
+#                                                                   #
+# Snippet-06: maven dependencies for hateoas                        #
+#                                                                   #
+#####################################################################
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-hateoas</artifactId>
+</dependency>
+
+#####################################################################
+#                                                                   #
+# Snippet-07: com.tesco.hateoas.CustomerModel                       #
+#                                                                   #
+#####################################################################
+
+package com.tesco.hateoas;
+
+import com.tesco.dto.CustomerResponseDto;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import org.springframework.hateoas.RepresentationModel;
+
+@Getter
+@EqualsAndHashCode(callSuper = false)
+public class CustomerModel extends RepresentationModel<CustomerModel> {
+    private final String id;
+    private final String firstName;
+    private final String lastName;
+    private final String email;
+    private final String gender;
+    private final String city;
+    private final String phone;
+
+    public CustomerModel(CustomerResponseDto dto) {
+        this.id = dto.getId();
+        this.firstName = dto.getFirstname();
+        this.lastName = dto.getLastname();
+        this.email = dto.getEmail();
+        this.gender = dto.getGender();
+        this.city = dto.getCity();
+        this.phone = dto.getPhone();
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-08: com.tesco.hateoas.CustomerModelAssembler              #
+#                                                                   #
+#####################################################################
+
+package com.tesco.hateoas;
+
+
+import com.tesco.controller.CustomerController;
+import com.tesco.dto.CustomerResponseDto;
+import org.springframework.hateoas.server.RepresentationModelAssembler;
+import org.springframework.stereotype.Component;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
+
+@Component
+public class CustomerModelAssembler implements RepresentationModelAssembler<CustomerResponseDto, CustomerModel> {
+
+    @Override
+    public CustomerModel toModel(CustomerResponseDto dto) {
+        CustomerModel customerModel = new CustomerModel(dto);
+        customerModel.add(
+                linkTo(methodOn(CustomerController.class)
+                        .getCustomer(dto.getId()))
+                        .withSelfRel(),
+                linkTo(methodOn(CustomerController.class)
+                        .getCustomersByCity(dto.getCity()))
+                        .withRel("customersByCity"),
+                linkTo(methodOn(CustomerController.class)
+                        .getAllCustomers())
+                        .withRel("allCustomers")
+        );
+
+        return customerModel;
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-09: docker compose script for jenkins                     #
+#                                                                   #
+#####################################################################
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    privileged: true
+    user: root
+    ports:
+      - "7788:8080"
+      - "50000:50000"
+    container_name: jenkins
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/local/bin/docker:/usr/local/bin/docker
+
+volumes:
+  jenkins_home:
+
+
+#####################################################################
+#                                                                   #
+# Snippet-10: Jenkinsfile for CI/CD pipeline                        #
+#                                                                   #
+#####################################################################
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'       // Make sure this matches your Jenkins tool name
+        jdk 'JDK-17'        // Make sure this matches your Jenkins tool name
+    }
+
+    environment {
+        DOCKER_REGISTRY = 'learnwithvinod'
+        DOCKER_IMAGE = 'couchbase-demo-app'
+        VERSION = "${BUILD_NUMBER}"
+        SONAR_PROJECT_KEY = 'couchbase-demo-app'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit '**/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'SonarScanner'
+                    withEnv(["PATH+SONAR=${scannerHome}/bin"]) {
+                        sh '''
+                            mvn clean verify sonar:sonar
+                        '''
+                    }
+                }
+            }
+        }
+//         stage('Build Docker Image') {
+//             steps {
+//                 script {
+//                     docker.build("${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${VERSION}")
+//                 }
+//             }
+//         }
+
+//         stage('Push Docker Image') {
+//             steps {
+//                 script {
+//                     docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-registry-credentials') {
+//                         docker.image("${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${VERSION}").push()
+//                         docker.image("${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${VERSION}").push('latest')
+//                     }
+//                 }
+//             }
+//         }
+    }
+
+    post {
+        always {
+            // Clean workspace
+            cleanWs()
+        }
+    }
+}
+
+
+#####################################################################
+#                                                                   #
+# Snippet-11: jwt secret and expiration in application.properties   #
+#                                                                   #
+#####################################################################
+
+jwt.secret=645367566B59703373367639792F423F4528482B4D6251655468576D5A713474375367566B59703373367639792F423F4528482B4D6251655468576D5A71347437
+jwt.expiration=86400000
+
+#####################################################################
+#                                                                   #
+# Snippet-12: maven dependencies for sprint security                #
+#                                                                   #
+#####################################################################
+
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-api</artifactId>
+    <version>0.11.5</version>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-impl</artifactId>
+    <version>0.11.5</version>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-jackson</artifactId>
+    <version>0.11.5</version>
+</dependency>
+
+#####################################################################
+#                                                                   #
+# Snippet-13: com.tesco.auth.User                                   #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.couchbase.core.mapping.Document;
+import org.springframework.data.couchbase.core.mapping.Field;
+import org.springframework.data.couchbase.core.mapping.id.GeneratedValue;
+import org.springframework.data.couchbase.core.mapping.id.GenerationStrategy;
+import org.springframework.data.couchbase.repository.Collection;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Document
+@Collection("users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationStrategy.UNIQUE)
+    private String id;
+
+    @Field
+    private String username;
+
+    @Field
+    private String password;
+
+    @Field
+    private String email;
+
+    @Field
+    private String firstname;
+
+    @Field
+    private String lastname;
+
+    @Field
+    private List<String> roles;
+
+    @Field
+    private boolean active;
+}
+
+
+#####################################################################
+#                                                                   #
+# Snippet-14: com.tesco.auth.UserRepository                         #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import org.springframework.data.couchbase.repository.CouchbaseRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface UserRepository extends CouchbaseRepository<User, String> {
+    Optional<User> findByUsername(String username);
+    boolean existsByUsername(String username);
+    boolean existsByEmail(String email);
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-15: com.tesco.auth.SecurityExceptionHandler               #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import com.tesco.exception.ErrorResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.LocalDateTime;
+
+@RestControllerAdvice
+public class SecurityExceptionHandler {
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.FORBIDDEN.value(),
+                "Access denied: " + ex.getMessage(),
+                LocalDateTime.now()
+        );
+        return new ResponseEntity<>(error, HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(AuthenticationException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.UNAUTHORIZED.value(),
+                "Authentication failed: " + ex.getMessage(),
+                LocalDateTime.now()
+        );
+        return new ResponseEntity<>(error, HttpStatus.UNAUTHORIZED);
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-16: com.tesco.auth.SecurityConfig                         #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@EnableWebSecurity
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final CustomUserDetailsService userDetailsService;
+    private final JwtAuthenticationFilter jwtAuthFilter;
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/customers/**").hasAnyRole("ADMIN", "MANAGER", "USER")
+                        .anyRequest().authenticated()
+                )
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration authConfig) throws Exception {
+        return authConfig.getAuthenticationManager();
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-17: com.tesco.auth.JwtUtil                                #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.stereotype.Service;
+
+import java.security.Key;
+import java.util.Date;
+
+@Service
+public class JwtUtil {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expiration}")
+    private Long expiration;
+
+    public String generateToken(Authentication authentication) {
+        CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
+
+        return Jwts.builder()
+                .setSubject(userDetails.getUsername())
+                .claim("roles", userDetails.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .toList())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    public String getUsernameFromToken(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody()
+                .getSubject();
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parserBuilder()
+                    .setSigningKey(getSigningKey())
+                    .build()
+                    .parseClaimsJws(token);
+            return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private Key getSigningKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(secret);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-18: com.tesco.auth.JwtAuthenticationFilter                #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtUtil jwtUtil;
+    private final CustomUserDetailsService userDetailsService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String jwt = authHeader.substring(7);
+            if (jwtUtil.validateToken(jwt)) {
+                String username = jwtUtil.getUsernameFromToken(jwt);
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                userDetails, null, userDetails.getAuthorities());
+
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-19: com.tesco.auth.CustomUserDetails                      #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class CustomUserDetails implements UserDetails {
+    private final String username;
+    private final String password;
+    private final boolean active;
+    private final List<GrantedAuthority> authorities;
+
+    public CustomUserDetails(User user) {
+        this.username = user.getUsername();
+        this.password = user.getPassword();
+        this.active = user.isActive();
+        this.authorities = user.getRoles().stream()
+                .map(role -> new SimpleGrantedAuthority(role))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return active;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return active;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return active;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return active;
+    }
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-20: com.tesco.auth.CustomUserDetailsService               #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+
+        return new CustomUserDetails(user);
+    }
+}
+
+
+#####################################################################
+#                                                                   #
+# Snippet-21: com.tesco.auth.AuthController                         #
+#                                                                   #
+#####################################################################
+
+package com.tesco.auth;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final AuthenticationManager authenticationManager;
+    private final JwtUtil jwtUtil;
+
+    @PostMapping("/login")
+    public ResponseEntity<?> authenticate(@RequestBody LoginRequest loginRequest) {
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            loginRequest.getUsername(),
+                            loginRequest.getPassword()
+                    )
+            );
+
+            String jwt = jwtUtil.generateToken(authentication);
+
+            return ResponseEntity.ok(new LoginResponse(jwt, "Login successful"));
+        } catch (AuthenticationException e) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(new LoginResponse(null, "Invalid username or password"));
+        }
+    }
+}
+
+@Data
+class LoginRequest {
+    private String username;
+    private String password;
+}
+
+@Data
+@AllArgsConstructor
+class LoginResponse {
+    private String token;
+    private String message;
+}
+
+#####################################################################
+#                                                                   #
+# Snippet-22: docker compose script for sonarqube server            #
+#                                                                   #
+#####################################################################
+
+services:
+  sonarqube:
+    image: sonarqube:lts
+    container_name: sonarqube
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+volumes:
+    sonarqube_data:
+
+#####################################################################
+#                                                                   #
+# Snippet-23: sonar-properties.txt                                  #
+#                                                                   #
+#####################################################################
+
+# Required metadata
+sonar.projectKey=couchbase-demo-app
+sonar.projectName=Couchbase demo application using spring boot
+sonar.projectVersion=1.0
+
+# Source code location
+sonar.sources=src/main/java
+sonar.java.binaries=target/classes
+sonar.java.source=17
+
+# Test source code location
+sonar.tests=src/test/java
+sonar.junit.reportPaths=target/surefire-reports
+sonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+sonar.java.coveragePlugin=jacoco
+
+# Encoding of source files
+sonar.sourceEncoding=UTF-8
+
+# Exclusions
+sonar.exclusions=src/main/java/**/config/**,src/main/java/**/model/**,src/main/java/**/entity/**
+sonar.coverage.exclusions=src/main/java/**/dto/**,src/main/java/**/config/**,src/main/java/**/model/**,src/main/java/**/entity/**
+
+#####################################################################
+#                                                                   #
+# Snippet-24: maven properties for sonar and jacoco                 #
+#                                                                   #
+#####################################################################
+
+    <properties>
+        <sonar.host.url>http://sonarqube:9000</sonar.host.url>
+        <sonar.login>squ_ba56103609d9653dbf586df4c8e7b596797a9fb2</sonar.login>
+        <java.version>17</java.version>
+        <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
+        <jacoco.version>0.8.11</jacoco.version>
+        <sonar.dynamicAnalysis>reuseReports</sonar.dynamicAnalysis>
+        <sonar.jacoco.reportPath>${project.basedir}/target/jacoco.exec</sonar.jacoco.reportPath>
+        <sonar.language>java</sonar.language>
+    </properties>
+
+#####################################################################
+#                                                                   #
+# Snippet-25: maven jacoco plugin                                   #
+#                                                                   #
+#####################################################################
+
+<plugin>
+    <groupId>org.jacoco</groupId>
+    <artifactId>jacoco-maven-plugin</artifactId>
+    <version>${jacoco.version}</version>
+    <executions>
+        <execution>
+            <id>prepare-agent</id>
+            <goals>
+                <goal>prepare-agent</goal>
+            </goals>
+        </execution>
+        <execution>
+            <id>report</id>
+            <phase>prepare-package</phase>
+            <goals>
+                <goal>report</goal>
+            </goals>
+        </execution>
+        <execution>
+            <id>post-unit-test</id>
+            <phase>test</phase>
+            <goals>
+                <goal>report</goal>
+            </goals>
+            <configuration>
+                <dataFile>target/jacoco.exec</dataFile>
+                <outputDirectory>target/jacoco-ut</outputDirectory>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+

@@ -1,0 +1,42 @@
+[
+  {
+    "username": "admin",
+    "password": "$2a$12$FR1s9cyKlsh.6rgmBbUIQeTTVtHMvXz6SRcFxjZTrgSnW.5iAnRQu",
+    "email": "admin@tesco.com",
+    "firstName": "Admin",
+    "lastName": "User",
+    "roles": ["ROLE_ADMIN"],
+    "active": true,
+    "_class": "com.tesco.entity.User"
+  },
+  {
+    "username": "manager",
+    "password": "$2a$12$M8Z5FckJD4jvIrLuM1Vgo.Kgj.TZI.hZVxZj373nLrcrER6Y0HoN2",
+    "email": "manager@tesco.com",
+    "firstName": "Store",
+    "lastName": "Manager",
+    "roles": ["ROLE_MANAGER"],
+    "active": true,
+    "_class": "com.tesco.entity.User"
+  },
+  {
+    "username": "john.doe",
+    "password": "$2a$12$hLzOzc6IEFSe63iZ7hYPcOwQOzKJOQhVDTM/65Mcr7zI52L9Mpk4m",
+    "email": "john.doe@tesco.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "roles": ["ROLE_USER"],
+    "active": true,
+    "_class": "com.tesco.entity.User"
+  },
+  {
+    "username": "jane.smith",
+    "password": "$2a$12$ogBKtFMQ.ieJGue4IpQREOZ2EolKqUzr9eowFQUHcvKp.rJSijAxG",
+    "email": "jane.smith@tesco.com",
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "roles": ["ROLE_USER"],
+    "active": true,
+    "_class": "com.tesco.entity.User"
+  }
+]
